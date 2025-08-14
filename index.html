@@ -1,404 +1,454 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-
-// --- Config ---
-const COLS = 10;
-const ROWS = 20;
-const PREVIEW_SIZE = 4;
-const LINES_PER_LEVEL = 10;
-const START_SPEED_MS = 800; // drop every X ms at level 1
-const MIN_SPEED_MS = 80;
-const SPEED_STEP_MS = 60; // speed-up per level
-
-const SHAPES = {
-  I: [
-    [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
-    [[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]],
-    [[0,0,0,0],[0,0,0,0],[1,1,1,1],[0,0,0,0]],
-    [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]],
-  ],
-  O: [
-    [[0,1,1,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,1,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,1,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,1,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],
-  ],
-  T: [
-    [[0,1,0,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,0,0],[0,1,1,0],[0,1,0,0],[0,0,0,0]],
-    [[0,0,0,0],[1,1,1,0],[0,1,0,0],[0,0,0,0]],
-    [[0,1,0,0],[1,1,0,0],[0,1,0,0],[0,0,0,0]],
-  ],
-  S: [
-    [[0,1,1,0],[1,1,0,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,0,0],[0,1,1,0],[0,0,1,0],[0,0,0,0]],
-    [[0,0,0,0],[0,1,1,0],[1,1,0,0],[0,0,0,0]],
-    [[1,0,0,0],[1,1,0,0],[0,1,0,0],[0,0,0,0]],
-  ],
-  Z: [
-    [[1,1,0,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,0,1,0],[0,1,1,0],[0,1,0,0],[0,0,0,0]],
-    [[0,0,0,0],[1,1,0,0],[0,1,1,0],[0,0,0,0]],
-    [[0,1,0,0],[1,1,0,0],[1,0,0,0],[0,0,0,0]],
-  ],
-  J: [
-    [[1,0,0,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,1,0],[0,1,0,0],[0,1,0,0],[0,0,0,0]],
-    [[0,0,0,0],[1,1,1,0],[0,0,1,0],[0,0,0,0]],
-    [[0,1,0,0],[0,1,0,0],[1,1,0,0],[0,0,0,0]],
-  ],
-  L: [
-    [[0,0,1,0],[1,1,1,0],[0,0,0,0],[0,0,0,0]],
-    [[0,1,0,0],[0,1,0,0],[0,1,1,0],[0,0,0,0]],
-    [[0,0,0,0],[1,1,1,0],[1,0,0,0],[0,0,0,0]],
-    [[1,1,0,0],[0,1,0,0],[0,1,0,0],[0,0,0,0]],
-  ],
-};
-
-const COLORS = {
-  I: "#2dd4bf",
-  O: "#f59e0b",
-  T: "#a78bfa",
-  S: "#22c55e",
-  Z: "#ef4444",
-  J: "#3b82f6",
-  L: "#f97316",
-  X: "#111827", // board background cell
-};
-
-function emptyBoard() {
-  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-}
-
-function randomPiece() {
-  const keys = Object.keys(SHAPES);
-  const type = keys[Math.floor(Math.random() * keys.length)];
-  return { type, rot: 0, x: 3, y: -1 };
-}
-
-function rotateMatrix(m) {
-  // 4x4 matrix rotation CW
-  const res = Array.from({ length: 4 }, () => Array(4).fill(0));
-  for (let y = 0; y < 4; y++) {
-    for (let x = 0; x < 4; x++) {
-      res[x][3 - y] = m[y][x];
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tetris – Vanilla JS</title>
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --panel: #121829;
+      --text: #e7ecff;
+      --muted: #94a3b8;
+      --accent: #6ee7ff;
+      --grid: #1f2937;
+      --ghost: #334155;
     }
-  }
-  return res;
-}
-
-function getShape(piece) {
-  return SHAPES[piece.type][piece.rot % 4];
-}
-
-function collides(board, piece) {
-  const shape = getShape(piece);
-  for (let y = 0; y < 4; y++) {
-    for (let x = 0; x < 4; x++) {
-      if (!shape[y][x]) continue;
-      const nx = piece.x + x;
-      const ny = piece.y + y;
-      if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
-      if (ny >= 0 && board[ny][nx]) return true;
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+      Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background: radial-gradient(1200px 800px at 10% 10%, #0f172a, #0b0f1a);
+      color: var(--text); display: grid; place-items: center;
     }
-  }
-  return false;
-}
-
-function merge(board, piece) {
-  const copy = board.map((row) => row.slice());
-  const shape = getShape(piece);
-  for (let y = 0; y < 4; y++) {
-    for (let x = 0; x < 4; x++) {
-      if (shape[y][x]) {
-        const nx = piece.x + x;
-        const ny = piece.y + y;
-        if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS) {
-          copy[ny][nx] = piece.type;
-        }
-      }
+    .app { display: grid; grid-template-columns: 220px 360px 220px; gap: 16px; align-items: start; }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; place-items: center; }
+      .side { width: 360px; }
     }
-  }
-  return copy;
-}
-
-function clearLines(board) {
-  let lines = 0;
-  const next = [];
-  for (let y = 0; y < ROWS; y++) {
-    if (board[y].every((c) => c)) {
-      lines++;
-    } else {
-      next.push(board[y]);
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.35);
     }
-  }
-  while (next.length < ROWS) next.unshift(Array(COLS).fill(null));
-  return { next, lines };
-}
+    .title { font-weight: 800; letter-spacing: 0.2px; font-size: 18px; margin: 0 0 10px; color: var(--accent); text-transform: uppercase; }
+    .meta { color: var(--muted); font-size: 14px; line-height: 1.4; }
+    .kbd { display: inline-block; padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.04); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    canvas { display: block; background: var(--panel); border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+    .stat { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 10px; text-align: center; }
+    .stat .label { color: var(--muted); font-size: 12px; }
+    .stat .value { font-weight: 800; letter-spacing: 0.5px; font-size: 20px; }
+    .side { width: 220px; }
+    .mini { width: 192px; height: 192px; background: var(--panel); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); margin-top: 8px; }
+    .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    button { cursor: pointer; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: var(--text); padding: 10px 12px; font-weight: 600; }
+    button:hover { background: rgba(255,255,255,0.1); }
+    .footer { margin-top: 12px; font-size: 12px; color: var(--muted); text-align: center; }
+    .link { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="app">
 
-function scoreForLines(n) {
-  // Standard-ish Tetris scoring per line clear (single 100, double 300, triple 500, tetris 800)
-  const table = { 0: 0, 1: 100, 2: 300, 3: 500, 4: 800 };
-  return table[n] || 0;
-}
-
-function speedForLevel(level) {
-  return Math.max(MIN_SPEED_MS, START_SPEED_MS - (level - 1) * SPEED_STEP_MS);
-}
-
-export default function Tetris() {
-  const [board, setBoard] = useState(emptyBoard);
-  const [current, setCurrent] = useState(randomPiece);
-  const [nextPiece, setNextPiece] = useState(randomPiece);
-  const [running, setRunning] = useState(false);
-  const [gameOver, setGameOver] = useState(false);
-  const [score, setScore] = useState(0);
-  const [lines, setLines] = useState(0);
-  const level = Math.floor(lines / LINES_PER_LEVEL) + 1;
-
-  const dropTimer = useRef(null);
-  const holdDown = useRef(false);
-
-  const placeNewPiece = (p) => {
-    if (collides(board, p)) {
-      setRunning(false);
-      setGameOver(true);
-      return false;
-    }
-    setCurrent(p);
-    return true;
-  };
-
-  const spawn = () => {
-    const fresh = { ...nextPiece, x: 3, y: -1, rot: 0 };
-    setNextPiece(randomPiece());
-    placeNewPiece(fresh);
-  };
-
-  const tryMove = (dx, dy, droplike = false) => {
-    const np = { ...current, x: current.x + dx, y: current.y + dy };
-    if (!collides(board, np)) {
-      setCurrent(np);
-      return true;
-    } else if (droplike && dy > 0) {
-      // lock piece
-      const merged = merge(board, current);
-      const { next, lines: cleared } = clearLines(merged);
-      setBoard(next);
-      if (cleared) {
-        setLines((l) => l + cleared);
-        setScore((s) => s + scoreForLines(cleared) * level);
-      }
-      spawn();
-      return false;
-    }
-    return false;
-  };
-
-  const hardDrop = () => {
-    let np = { ...current };
-    while (!collides(board, { ...np, y: np.y + 1 })) {
-      np.y++;
-    }
-    // lock
-    const merged = merge(board, np);
-    const { next, lines: cleared } = clearLines(merged);
-    setBoard(next);
-    setScore((s) => s + 2 * (np.y - current.y)); // small bonus
-    if (cleared) {
-      setLines((l) => l + cleared);
-      setScore((s) => s + scoreForLines(cleared) * level);
-    }
-    spawn();
-  };
-
-  const rotate = () => {
-    const nextRot = (current.rot + 1) % 4;
-    const np = { ...current, rot: nextRot };
-    // simple wall kicks: try offsets
-    const kicks = [0, -1, 1, -2, 2];
-    for (const k of kicks) {
-      const test = { ...np, x: np.x + k };
-      if (!collides(board, test)) {
-        setCurrent(test);
-        return;
-      }
-    }
-  };
-
-  const reset = () => {
-    setBoard(emptyBoard());
-    setCurrent(randomPiece());
-    setNextPiece(randomPiece());
-    setScore(0);
-    setLines(0);
-    setGameOver(false);
-    setRunning(true);
-  };
-
-  // Input handlers
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!running && !gameOver && (e.key === "Enter" || e.key === " ")) {
-        setRunning(true);
-        return;
-      }
-      if (gameOver) return;
-      switch (e.key) {
-        case "ArrowLeft":
-          if (running) tryMove(-1, 0);
-          break;
-        case "ArrowRight":
-          if (running) tryMove(1, 0);
-          break;
-        case "ArrowDown":
-          if (running) tryMove(0, 1, true);
-          break;
-        case "ArrowUp":
-          if (running) rotate();
-          break;
-        case " ": // Space
-          if (running) hardDrop();
-          break;
-        case "p":
-        case "P":
-          if (!gameOver) setRunning((r) => !r);
-          break;
-        case "r":
-        case "R":
-          reset();
-          break;
-        default:
-          break;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [running, gameOver, current, board, level]);
-
-  // Drop timer
-  useEffect(() => {
-    if (!running || gameOver) return;
-    const interval = speedForLevel(level);
-    dropTimer.current && clearInterval(dropTimer.current);
-    dropTimer.current = setInterval(() => {
-      tryMove(0, 1, true);
-    }, interval);
-    return () => {
-      dropTimer.current && clearInterval(dropTimer.current);
-    };
-  }, [running, gameOver, level, current, board]);
-
-  // Render helpers
-  const displayBoard = useMemo(() => {
-    // overlay current piece on the board for rendering
-    const b = board.map((row) => row.slice());
-    const shape = getShape(current);
-    for (let y = 0; y < 4; y++) {
-      for (let x = 0; x < 4; x++) {
-        if (!shape[y][x]) continue;
-        const nx = current.x + x;
-        const ny = current.y + y;
-        if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS) {
-          b[ny][nx] = current.type;
-        }
-      }
-    }
-    return b;
-  }, [board, current]);
-
-  const nextMatrix = useMemo(() => SHAPES[nextPiece.type][0], [nextPiece]);
-
-  return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-slate-900 p-6 text-slate-100">
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_300px] gap-6 w-full max-w-5xl">
-        {/* Game Panel */}
-        <div className="bg-slate-800 rounded-2xl p-4 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold tracking-tight">Tetris</h1>
-            <div className="text-sm opacity-80">Level {level}</div>
-          </div>
-          <div className="aspect-[1/2] w-full mx-auto max-w-[480px]">
-            <div
-              className="grid w-full h-full"
-              style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
-            >
-              {displayBoard.map((row, y) =>
-                row.map((cell, x) => (
-                  <div
-                    key={`${x}-${y}`}
-                    className="border border-slate-800/60"
-                    style={{
-                      background:
-                        cell ? COLORS[cell] : "#0f172a",
-                      boxShadow: cell ? "inset 0 0 6px rgba(0,0,0,0.4)" : undefined,
-                    }}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center gap-2 flex-wrap">
-            {!running && !gameOver && (
-              <button onClick={() => setRunning(true)} className="px-4 py-2 rounded-xl bg-emerald-500 hover:opacity-90 transition shadow">Start</button>
-            )}
-            {running && (
-              <button onClick={() => setRunning(false)} className="px-4 py-2 rounded-xl bg-amber-500 hover:opacity-90 transition shadow">Pause</button>
-            )}
-            {!running && !gameOver && (
-              <button onClick={reset} className="px-4 py-2 rounded-xl bg-sky-500 hover:opacity-90 transition shadow">Reset</button>
-            )}
-            {gameOver && (
-              <button onClick={reset} className="px-4 py-2 rounded-xl bg-rose-500 hover:opacity-90 transition shadow">Play Again</button>
-            )}
-            <div className="ml-auto text-sm opacity-80">Use arrows, ↑ rotate, Space drop, P pause, R reset</div>
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="bg-slate-800 rounded-2xl p-4 shadow-xl">
-          <div className="space-y-4">
-            <div>
-              <div className="text-sm uppercase tracking-wide opacity-80">Score</div>
-              <div className="text-3xl font-bold">{score}</div>
-            </div>
-            <div>
-              <div className="text-sm uppercase tracking-wide opacity-80">Lines</div>
-              <div className="text-2xl font-semibold">{lines}</div>
-            </div>
-            <div>
-              <div className="text-sm uppercase tracking-wide opacity-80">Next</div>
-              <div className="grid grid-cols-4 gap-[2px] bg-slate-900 p-[2px] rounded-lg w-40 h-40">
-                {nextMatrix.flat().map((v, i) => (
-                  <div
-                    key={i}
-                    className="rounded-sm"
-                    style={{
-                      background: v ? COLORS[nextPiece.type] : "#0b1220",
-                      border: "1px solid rgba(15,23,42,0.6)",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            {gameOver && (
-              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40">
-                <div className="font-semibold">Game Over</div>
-                <div className="text-sm opacity-90">Press Play Again or hit R to restart.</div>
-              </div>
-            )}
-
-            {/* Mobile controls */}
-            <div className="mt-2 grid grid-cols-3 gap-2 sm:hidden">
-              <button onClick={() => tryMove(-1, 0)} className="p-3 rounded-xl bg-slate-700">◀</button>
-              <button onClick={() => rotate()} className="p-3 rounded-xl bg-slate-700">⟳</button>
-              <button onClick={() => tryMove(1, 0)} className="p-3 rounded-xl bg-slate-700">▶</button>
-              <button onClick={() => tryMove(0, 1, true)} className="col-span-2 p-3 rounded-xl bg-slate-700">Soft Drop</button>
-              <button onClick={() => hardDrop()} className="p-3 rounded-xl bg-slate-700">Hard Drop</button>
-            </div>
-          </div>
-        </div>
+    <aside class="side panel">
+      <h2 class="title">Hold</h2>
+      <canvas id="hold" class="mini" width="192" height="192"></canvas>
+      <div class="btnrow">
+        <button id="newGame">New Game (R)</button>
+        <button id="pauseBtn">Pause (P)</button>
       </div>
-    </div>
-  );
-}
+      <div class="stats">
+        <div class="stat"><div class="label">Score</div><div id="score" class="value">0</div></div>
+        <div class="stat"><div class="label">Level</div><div id="level" class="value">1</div></div>
+        <div class="stat"><div class="label">Lines</div><div id="lines" class="value">0</div></div>
+        <div class="stat"><div class="label">Pieces</div><div id="pieces" class="value">0</div></div>
+      </div>
+    </aside>
+
+    <main>
+      <canvas id="board" width="360" height="720"></canvas>
+      <div class="panel meta" style="margin-top:10px">
+        <div><span class="kbd">←</span>/<span class="kbd">→</span> move &nbsp; <span class="kbd">↓</span> soft drop &nbsp; <span class="kbd">Space</span> hard drop</div>
+        <div><span class="kbd">↑</span> rotate CW &nbsp; <span class="kbd">Z</span> rotate CCW &nbsp; <span class="kbd">C</span> hold &nbsp; <span class="kbd">P</span> pause &nbsp; <span class="kbd">R</span> restart</div>
+      </div>
+    </main>
+
+    <aside class="side panel">
+      <h2 class="title">Next</h2>
+      <canvas id="next" class="mini" width="192" height="192"></canvas>
+      <div class="footer">MIT Licensed • Build for GitHub Pages</div>
+    </aside>
+
+  </div>
+
+  <script>
+    // --- Config ---
+    const COLS = 10, ROWS = 20, CELL = 36; // board canvas is 360x720
+    const TICK_TABLE = [
+      800, 716, 633, 550, 466, 383, 300, 216, 133, 100, 88, 76, 66, 56, 48, 41, 35, 30, 25, 21
+    ]; // ms per gravity step per level (0..19)
+
+    // Colors per piece type
+    const COLORS = {
+      I: '#60a5fa', J: '#93c5fd', L: '#fb923c', O: '#facc15', S: '#34d399', T: '#a78bfa', Z: '#f87171',
+      X: '#1f2937' // locked cell fallback
+    };
+
+    // Tetromino definitions (Super Rotation System shapes)
+    const SHAPES = {
+      I: [
+        [[0,1],[1,1],[2,1],[3,1]],
+        [[2,0],[2,1],[2,2],[2,3]],
+        [[0,2],[1,2],[2,2],[3,2]],
+        [[1,0],[1,1],[1,2],[1,3]]
+      ],
+      J: [
+        [[0,0],[0,1],[1,1],[2,1]],
+        [[1,0],[2,0],[1,1],[1,2]],
+        [[0,1],[1,1],[2,1],[2,2]],
+        [[1,0],[1,1],[0,2],[1,2]]
+      ],
+      L: [
+        [[2,0],[0,1],[1,1],[2,1]],
+        [[1,0],[1,1],[1,2],[2,2]],
+        [[0,1],[1,1],[2,1],[0,2]],
+        [[0,0],[1,0],[1,1],[1,2]]
+      ],
+      O: [
+        [[1,0],[2,0],[1,1],[2,1]],
+        [[1,0],[2,0],[1,1],[2,1]],
+        [[1,0],[2,0],[1,1],[2,1]],
+        [[1,0],[2,0],[1,1],[2,1]]
+      ],
+      S: [
+        [[1,0],[2,0],[0,1],[1,1]],
+        [[1,0],[1,1],[2,1],[2,2]],
+        [[1,1],[2,1],[0,2],[1,2]],
+        [[0,0],[0,1],[1,1],[1,2]]
+      ],
+      T: [
+        [[1,0],[0,1],[1,1],[2,1]],
+        [[1,0],[1,1],[2,1],[1,2]],
+        [[0,1],[1,1],[2,1],[1,2]],
+        [[1,0],[0,1],[1,1],[1,2]]
+      ],
+      Z: [
+        [[0,0],[1,0],[1,1],[2,1]],
+        [[2,0],[1,1],[2,1],[1,2]],
+        [[0,1],[1,1],[1,2],[2,2]],
+        [[1,0],[0,1],[1,1],[0,2]]
+      ]
+    };
+
+    // Wall kick data (simplified SRS). For O, no kicks.
+    const KICKS = {
+      normal: {
+        '0>1': [[0,0],[ -1,0],[ -1, 1],[ 0,-2],[ -1,-2]],
+        '1>0': [[0,0],[ 1,0],[ 1,-1],[ 0, 2],[ 1, 2]],
+        '1>2': [[0,0],[ 1,0],[ 1,-1],[ 0, 2],[ 1, 2]],
+        '2>1': [[0,0],[ -1,0],[ -1, 1],[ 0,-2],[ -1,-2]],
+        '2>3': [[0,0],[ 1,0],[ 1, 1],[ 0,-2],[ 1,-2]],
+        '3>2': [[0,0],[ -1,0],[ -1,-1],[ 0, 2],[ -1, 2]],
+        '3>0': [[0,0],[ -1,0],[ -1,-1],[ 0, 2],[ -1, 2]],
+        '0>3': [[0,0],[ 1,0],[ 1, 1],[ 0,-2],[ 1,-2]]
+      },
+      I: {
+        '0>1': [[0,0],[ -2,0],[ 1,0],[ -2,-1],[ 1,2]],
+        '1>0': [[0,0],[ 2,0],[ -1,0],[ 2,1],[ -1,-2]],
+        '1>2': [[0,0],[ -1,0],[ 2,0],[ -1,2],[ 2,-1]],
+        '2>1': [[0,0],[ 1,0],[ -2,0],[ 1,-2],[ -2,1]],
+        '2>3': [[0,0],[ 2,0],[ -1,0],[ 2,1],[ -1,-2]],
+        '3>2': [[0,0],[ -2,0],[ 1,0],[ -2,-1],[ 1,2]],
+        '3>0': [[0,0],[ 1,0],[ -2,0],[ 1,-2],[ -2,1]],
+        '0>3': [[0,0],[ -1,0],[ 2,0],[ -1,2],[ 2,-1]]
+      }
+    };
+
+    // --- Helpers ---
+    const $ = sel => document.querySelector(sel);
+    const board = $('#board');
+    const ctx = board.getContext('2d');
+    const nextCanvas = $('#next').getContext('2d');
+    const holdCanvas = $('#hold').getContext('2d');
+
+    const emptyMatrix = () => Array.from({length: ROWS}, () => Array(COLS).fill(null));
+
+    // 7-bag generator
+    function* bagGenerator() {
+      const types = ['I','J','L','O','S','T','Z'];
+      while (true) {
+        const bag = [...types];
+        for (let i = bag.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [bag[i], bag[j]] = [bag[j], bag[i]];
+        }
+        for (const t of bag) yield t;
+      }
+    }
+
+    // Piece object factory
+    function makePiece(type) {
+      return {
+        type,
+        rot: 0,
+        x: 3, // spawn x
+        y: -2, // spawn y (above board)
+        blocks() { return SHAPES[this.type][this.rot]; }
+      };
+    }
+
+    // --- Game State ---
+    const State = {
+      grid: emptyMatrix(),
+      current: null,
+      hold: null,
+      canHold: true,
+      queue: bagGenerator(),
+      next: [],
+      score: 0,
+      lines: 0,
+      level: 0,
+      pieces: 0,
+      over: false,
+      paused: false,
+      lastDrop: 0,
+    };
+
+    function resetGame() {
+      State.grid = emptyMatrix();
+      State.current = null;
+      State.hold = null;
+      State.canHold = true;
+      State.queue = bagGenerator();
+      State.next = [nextType(), nextType(), nextType(), nextType(), nextType()];
+      State.score = 0; State.lines = 0; State.level = 0; State.pieces = 0; State.over = false; State.paused = false; State.lastDrop = 0;
+      spawn();
+      updatePanels();
+    }
+
+    function nextType() { return State.queue.next().value; }
+
+    function spawn() {
+      const type = State.next.shift();
+      State.next.push(nextType());
+      State.current = makePiece(type);
+      State.pieces++;
+      if (collides(State.current, 0, 0)) {
+        State.over = true;
+      }
+    }
+
+    function hold() {
+      if (!State.canHold || !State.current) return;
+      const cur = State.current;
+      if (!State.hold) {
+        State.hold = makePiece(cur.type); // store type only
+        State.current = null;
+        spawn();
+      } else {
+        const temp = State.hold.type;
+        State.hold = makePiece(cur.type);
+        State.current = makePiece(temp);
+      }
+      State.current.x = 3; State.current.y = -2; State.current.rot = 0; State.canHold = false;
+    }
+
+    function rotate(dir) {
+      const piece = State.current; if (!piece) return;
+      const oldRot = piece.rot;
+      const newRot = (oldRot + (dir > 0 ? 1 : 3)) % 4;
+      const key = `${oldRot}>${newRot}`;
+      const table = (piece.type === 'I' ? KICKS.I : KICKS.normal)[key] || [[0,0]];
+      for (const [dx, dy] of table) {
+        if (!collides(piece, dx, dy, newRot)) {
+          piece.x += dx; piece.y += dy; piece.rot = newRot; return;
+        }
+      }
+    }
+
+    function move(dx, dy) {
+      const piece = State.current; if (!piece) return false;
+      if (!collides(piece, dx, dy)) { piece.x += dx; piece.y += dy; return true; }
+      return false;
+    }
+
+    function collides(piece, dx=0, dy=0, rot=piece.rot) {
+      for (const [bx, by] of SHAPES[piece.type][rot]) {
+        const x = piece.x + bx + dx;
+        const y = piece.y + by + dy;
+        if (x < 0 || x >= COLS || y >= ROWS) return true;
+        if (y >= 0 && State.grid[y][x]) return true;
+      }
+      return false;
+    }
+
+    function lockPiece() {
+      const p = State.current; if (!p) return;
+      for (const [bx, by] of p.blocks()) {
+        const x = p.x + bx, y = p.y + by;
+        if (y >= 0) State.grid[y][x] = p.type;
+      }
+      State.canHold = true; clearLines(); spawn();
+    }
+
+    function clearLines() {
+      let cleared = 0;
+      for (let y = ROWS - 1; y >= 0; y--) {
+        if (State.grid[y].every(cell => cell)) {
+          State.grid.splice(y, 1);
+          State.grid.unshift(Array(COLS).fill(null));
+          cleared++; y++;
+        }
+      }
+      if (cleared) {
+        const points = [0, 100, 300, 500, 800][cleared] * (State.level + 1);
+        State.score += points; State.lines += cleared;
+        if (Math.floor(State.lines / 10) > State.level) State.level = Math.floor(State.lines / 10);
+      }
+    }
+
+    function hardDrop() {
+      let dist = 0;
+      while (move(0,1)) dist++;
+      State.score += dist * 2; // hard drop bonus
+      lockPiece();
+    }
+
+    // --- Rendering ---
+    function drawCell(ctx, x, y, type, size=CELL) {
+      const px = x * size, py = y * size;
+      const col = COLORS[type] || COLORS.X;
+      ctx.fillStyle = col;
+      ctx.fillRect(px+1, py+1, size-2, size-2);
+      // glossy bevel
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(px+2, py+2, size-4, (size-4)/3);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(px+2, py+size/2, size-4, size/2-2);
+    }
+
+    function drawGrid() {
+      ctx.clearRect(0,0,board.width, board.height);
+      // background grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      for (let x=0;x<COLS;x++) {
+        for (let y=0;y<ROWS;y++) {
+          ctx.strokeRect(x*CELL+0.5, y*CELL+0.5, CELL-1, CELL-1);
+        }
+      }
+
+      // draw locked cells
+      for (let y=0;y<ROWS;y++) {
+        for (let x=0;x<COLS;x++) {
+          const t = State.grid[y][x]; if (t) drawCell(ctx, x, y, t);
+        }
+      }
+
+      // ghost
+      if (State.current) {
+        const ghost = {...State.current};
+        while (!collides(ghost, 0, 1)) ghost.y++;
+        ctx.globalAlpha = 0.25;
+        for (const [bx, by] of ghost.blocks()) drawCell(ctx, ghost.x+bx, ghost.y+by, State.current.type);
+        ctx.globalAlpha = 1;
+      }
+
+      // current piece
+      if (State.current) {
+        for (const [bx, by] of State.current.blocks()) {
+          const x = State.current.x + bx, y = State.current.y + by;
+          if (y >= 0) drawCell(ctx, x, y, State.current.type);
+        }
+      }
+
+      // overlays
+      if (State.over) drawOverlay('Game Over', 'Press R to restart');
+      else if (State.paused) drawOverlay('Paused', 'Press P to resume');
+    }
+
+    function drawOverlay(title, subtitle) {
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(0,0,board.width, board.height);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 36px ui-sans-serif, system-ui';
+      ctx.fillText(title, board.width/2, board.height/2 - 10);
+      ctx.font = '16px ui-sans-serif, system-ui';
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillText(subtitle, board.width/2, board.height/2 + 20);
+    }
+
+    function drawMini(canvas, type) {
+      const c = canvas; const s = 24; // mini cell size
+      c.clearRect(0,0,192,192);
+      if (!type) return;
+      const blocks = SHAPES[type][0];
+      // center in 8x8 mini-grid
+      const minX = Math.min(...blocks.map(b=>b[0]));
+      const maxX = Math.max(...blocks.map(b=>b[0]));
+      const minY = Math.min(...blocks.map(b=>b[1]));
+      const maxY = Math.max(...blocks.map(b=>b[1]));
+      const w = (maxX-minX+1), h=(maxY-minY+1);
+      const offX = Math.floor((8-w)/2) - minX;
+      const offY = Math.floor((8-h)/2) - minY;
+      blocks.forEach(([bx,by]) => drawCell(c, bx+offX, by+offY, type, s));
+    }
+
+    function drawSidePanels() {
+      drawMini(nextCanvas, State.next[0]);
+      drawMini(holdCanvas, State.hold?.type);
+    }
+
+    function updatePanels() {
+      $('#score').textContent = State.score;
+      $('#level').textContent = State.level + 1; // user-facing levels start at 1
+      $('#lines').textContent = State.lines;
+      $('#pieces').textContent = State.pieces;
+      drawSidePanels();
+    }
+
+    // --- Game Loop ---
+    let rafId = null;
+    function loop(ts) {
+      if (State.over || State.paused) { drawGrid(); updatePanels(); rafId = requestAnimationFrame(loop); return; }
+      if (!State.lastDrop) State.lastDrop = ts;
+      const tick = TICK_TABLE[Math.min(State.level, TICK_TABLE.length-1)];
+      if (ts - State.lastDrop >= tick) {
+        if (!move(0,1)) lockPiece();
+        State.lastDrop = ts;
+      }
+      drawGrid(); updatePanels();
+      rafId = requestAnimationFrame(loop);
+    }
+
+    function start() { cancelAnimationFrame(rafId); State.lastDrop = 0; rafId = requestAnimationFrame(loop); }
+
+    // --- Input ---
+    const keys = new Set();
+    document.addEventListener('keydown', e => {
+      if (['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','z','Z','c','C','p','P','r','R'].includes(e.key)) e.preventDefault();
+      if (State.over && (e.key==='r' || e.key==='R')) { resetGame(); return; }
+      if (State.paused && (e.key==='p' || e.key==='P')) { State.paused = false; return; }
+      switch (e.key) {
+        case 'ArrowLeft': move(-1,0); break;
+        case 'ArrowRight': move(1,0); break;
+        case 'ArrowDown': if (move(0,1)) State.score += 1; break; // soft drop bonus
+        case ' ': hardDrop(); break;
+        case 'ArrowUp': rotate(1); break;
+        case 'z': case 'Z': rotate(-1); break;
+        case 'c': case 'C': hold(); break;
+        case 'p': case 'P': State.paused = !State.paused; break;
+        case 'r': case 'R': resetGame(); break;
+      }
+    });
+
+    // Buttons
+    $('#newGame').addEventListener('click', resetGame);
+    $('#pauseBtn').addEventListener('click', () => State.paused = !State.paused);
+
+    // --- Boot ---
+    resetGame();
+    start();
+  </script>
+</body>
+</html>
